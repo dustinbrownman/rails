@@ -12,15 +12,15 @@ module ActiveJob
 
       if ex
         error do
-          "Failed enqueuing #{job.class.name} to #{queue_name(event)}: #{ex.class} (#{ex.message})"
+          "Failed enqueuing #{job_info(event, include_job_id: false)} to #{queue_name(event)}: #{exception_info(ex)}"
         end
       elsif event.payload[:aborted]
         info do
-          "Failed enqueuing #{job.class.name} to #{queue_name(event)}, a before_enqueue callback halted the enqueuing execution."
+          "Failed enqueuing #{job_info(event, include_job_id: false)} to #{queue_name(event)}, a before_enqueue callback halted the enqueuing execution."
         end
       else
         info do
-          "Enqueued #{job.class.name} (Job ID: #{job.job_id}) to #{queue_name(event)}" + args_info(job)
+          "Enqueued #{job_info(event)} to #{queue_name(event)} #{args_info(event)}".squeeze(" ")
         end
       end
     end
@@ -32,15 +32,15 @@ module ActiveJob
 
       if ex
         error do
-          "Failed enqueuing #{job.class.name} to #{queue_name(event)}: #{ex.class} (#{ex.message})"
+          "Failed enqueuing #{job_info(event, include_job_id: false)} to #{queue_name(event)}: #{exception_info(ex)}"
         end
       elsif event.payload[:aborted]
         info do
-          "Failed enqueuing #{job.class.name} to #{queue_name(event)}, a before_enqueue callback halted the enqueuing execution."
+          "Failed enqueuing #{job_info(event, include_job_id: false)} to #{queue_name(event)}, a before_enqueue callback halted the enqueuing execution."
         end
       else
         info do
-          "Enqueued #{job.class.name} (Job ID: #{job.job_id}) to #{queue_name(event)} at #{scheduled_at(event)}" + args_info(job)
+          "Enqueued #{job_info(event)} to #{queue_name(event)} at #{scheduled_at(event)} #{args_info(event)}".squeeze(" ")
         end
       end
     end
@@ -75,62 +75,56 @@ module ActiveJob
 
     def perform_start(event)
       info do
-        job = event.payload[:job]
-        "Performing #{job.class.name} (Job ID: #{job.job_id}) from #{queue_name(event)} enqueued at #{job.enqueued_at.utc.iso8601(9)}" + args_info(job)
+        "Performing #{job_info(event)} from #{enqueue_info(event)} #{args_info(event)}".squeeze(" ")
       end
     end
     subscribe_log_level :perform_start, :info
 
     def perform(event)
-      job = event.payload[:job]
       ex = event.payload[:exception_object]
       if ex
         error do
-          "Error performing #{job.class.name} (Job ID: #{job.job_id}) from #{queue_name(event)} in #{event.duration.round(2)}ms: #{ex.class} (#{ex.message}):\n" + Array(ex.backtrace).join("\n")
+          "Error performing #{job_info(event)} from #{queue_name(event)} in #{duration(event)}: #{exception_info(ex, include_backtrace: true)}"
         end
       elsif event.payload[:aborted]
         error do
-          "Error performing #{job.class.name} (Job ID: #{job.job_id}) from #{queue_name(event)} in #{event.duration.round(2)}ms: a before_perform callback halted the job execution"
+          "Error performing #{job_info(event)} from #{queue_name(event)} in #{duration(event)}: a before_perform callback halted the job execution"
         end
       else
         info do
-          "Performed #{job.class.name} (Job ID: #{job.job_id}) from #{queue_name(event)} in #{event.duration.round(2)}ms"
+          "Performed #{job_info(event)} from #{queue_name(event)} in #{duration(event)}"
         end
       end
     end
     subscribe_log_level :perform, :info
 
     def enqueue_retry(event)
-      job = event.payload[:job]
       ex = event.payload[:error]
-      wait = event.payload[:wait]
 
       info do
         if ex
-          "Retrying #{job.class} (Job ID: #{job.job_id}) after #{job.executions} attempts in #{wait.to_i} seconds, due to a #{ex.class} (#{ex.message})."
+          "Retrying #{job_info(event)} after #{attempts(event)} in #{wait_time(event)}, due to a #{exception_info(ex)}."
         else
-          "Retrying #{job.class} (Job ID: #{job.job_id}) after #{job.executions} attempts in #{wait.to_i} seconds."
+          "Retrying #{job_info(event)} after #{attempts(event)} in #{wait_time(event)}."
         end
       end
     end
     subscribe_log_level :enqueue_retry, :info
 
     def retry_stopped(event)
-      job = event.payload[:job]
       ex = event.payload[:error]
 
       error do
-        "Stopped retrying #{job.class} (Job ID: #{job.job_id}) due to a #{ex.class} (#{ex.message}), which reoccurred on #{job.executions} attempts."
+        "Stopped retrying #{job_info(event)} due to a #{exception_info(ex)}, which reoccurred on #{attempts(event)}."
       end
     end
     subscribe_log_level :enqueue_retry, :error
 
     def discard(event)
-      job = event.payload[:job]
       ex = event.payload[:error]
 
       error do
-        "Discarded #{job.class} (Job ID: #{job.job_id}) due to a #{ex.class} (#{ex.message})."
+        "Discarded #{job_info(event)} due to a #{exception_info(ex)}."
       end
     end
     subscribe_log_level :discard, :error
@@ -140,13 +134,47 @@ module ActiveJob
         ActiveJob.adapter_name(event.payload[:adapter]) + "(#{event.payload[:job].queue_name})"
       end
 
-      def args_info(job)
-        if job.class.log_arguments? && job.arguments.any?
-          " with arguments: " +
-            job.arguments.map { |arg| format(arg).inspect }.join(", ")
+      def enqueue_info(event)
+        return "" unless event.payload[:job].enqueued_at.present?
+
+        "#{queue_name(event)} enqueued at #{enqueued_at(event)}"
+      end
+
+      def job_info(event, include_job_id: true)
+        job = event.payload[:job]
+
+        if include_job_id
+          "#{job.class.name} (Job ID: #{job.job_id})"
         else
-          ""
+          job.class.name
         end
+      end
+
+      def duration(event)
+        "#{event.duration.round(2)}ms"
+      end
+
+      def wait_time(event)
+        "#{event.payload[:wait].to_i} seconds"
+      end
+
+      def attempts(event)
+        "#{event.payload[:job].executions} attempts"
+      end
+
+      def scheduled_at(event)
+        format_time(event.payload[:job].scheduled_at)
+      end
+
+      def enqueued_at(event)
+        format_time(event.payload[:job].enqueued_at)
+      end
+
+      def args_info(event)
+        job = event.payload[:job]
+        return "" unless job.class.log_arguments? && job.arguments.any?
+
+        "with arguments: " + job.arguments.map { |arg| format(arg).inspect }.join(", ")
       end
 
       def format(arg)
@@ -162,8 +190,15 @@ module ActiveJob
         end
       end
 
-      def scheduled_at(event)
-        Time.at(event.payload[:job].scheduled_at).utc
+      def format_time(time)
+        Time.at(time).utc.iso8601(9)
+      end
+
+      def exception_info(ex, include_backtrace: false)
+        ex_info = "#{ex.class} (#{ex.message})"
+        ex_info += ":\n#{ex.backtrace.join("\n")}" if include_backtrace && ex.backtrace.present?
+
+        ex_info
       end
 
       def logger
