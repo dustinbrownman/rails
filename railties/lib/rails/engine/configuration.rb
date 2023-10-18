@@ -7,7 +7,7 @@ module Rails
     class Configuration < ::Rails::Railtie::Configuration
       attr_reader :root
       attr_accessor :middleware, :javascript_path
-      attr_writer :eager_load_paths, :autoload_once_paths, :autoload_paths
+      attr_writer :eager_load_paths, :autoload_once_paths, :autoload_paths, :ignore_eager_load_paths
 
       # An array of custom autoload paths to be added to the ones defined
       # automatically by Rails. These won't be eager loaded, unless you push
@@ -37,6 +37,7 @@ module Rails
       #
       # If you'd like to add +lib+ to it, please see +autoload_lib+.
       attr_reader :eager_load_paths
+      attr_reader :ignore_eager_load_paths
 
       def initialize(root = nil)
         super()
@@ -48,6 +49,7 @@ module Rails
         @autoload_paths = []
         @autoload_once_paths = []
         @eager_load_paths = []
+        @ignore_eager_load_paths = []
       end
 
       # Holds generators configuration:
@@ -129,7 +131,7 @@ module Rails
       # Private method that adds custom eager load paths to the ones defined by
       # +paths+.
       def all_eager_load_paths # :nodoc:
-        eager_load_paths + paths.eager_load
+        (eager_load_paths + paths.eager_load) - ignore_eager_load_paths
       end
     end
   end
