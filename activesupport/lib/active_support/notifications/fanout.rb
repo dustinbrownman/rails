@@ -57,6 +57,8 @@ module ActiveSupport
         @silenceable_groups_for = Concurrent::Map.new
       end
 
+      delegate :synchronize, to: :@mutex
+
       def inspect # :nodoc:
         total_patterns = @string_subscribers.size + @other_subscribers.size
         "#<#{self.class} (#{total_patterns} patterns)>"
